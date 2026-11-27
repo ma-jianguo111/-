@@ -1,0 +1,11 @@
+# 编译产物
+*.exe
+*.obj
+*.o
+
+# 本地存档
+save.txt
+
+# 编辑器
+.vscode/
+.idea/
