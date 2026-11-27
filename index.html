@@ -320,10 +320,47 @@
   }
   .stat-row .stat .v { font-weight:900; letter-spacing:-.5px; }
   .chip {
-    background:#fff; border-radius:999px;
+    background:#fff; border-radius:14px;
     box-shadow:0 3px 10px rgba(70,105,160,.14), inset 0 1px 0 #fff;
-    border:none;
+    border:none; flex-direction:column; align-items:stretch; gap:3px;
+    padding:6px 10px 7px; min-width:86px;
   }
+  .chip .top { display:flex; align-items:center; gap:4px; }
+  .chip .em { font-size:15px; }
+  .chip .txt { font-size:12.5px; font-weight:800; color:#3d4660; }
+  .chip .bar {
+    display:block; height:5px; border-radius:3px; background:#e8eef8; overflow:hidden;
+  }
+  .chip .bar i {
+    display:block; height:100%; border-radius:3px;
+    background:linear-gradient(90deg,#ffd166,#ff8f5c); transition:width .25s ease;
+  }
+  .chip.done .bar i { background:linear-gradient(90deg,#7bd88f,#33a95a); }
+  .chip.done .txt { color:#2fa84f; }
+
+  /* 开局目标卡 */
+  .intro {
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%) scale(.9);
+    background:rgba(255,255,255,.97); border-radius:22px; padding:18px 22px 16px;
+    box-shadow:0 18px 44px rgba(50,80,130,.32); z-index:9; pointer-events:none;
+    text-align:center; opacity:0; min-width:210px; max-width:86%;
+  }
+  .intro.show { animation:introPop 2.4s ease forwards; }
+  @keyframes introPop {
+    0%   { opacity:0; transform:translate(-50%,-50%) scale(.88); }
+    12%  { opacity:1; transform:translate(-50%,-50%) scale(1); }
+    78%  { opacity:1; transform:translate(-50%,-50%) scale(1); }
+    100% { opacity:0; transform:translate(-50%,-50%) scale(.96); }
+  }
+  .intro .in-title { font-size:17px; font-weight:900; color:#ff6b4a; letter-spacing:.5px; }
+  .intro .in-sub { font-size:11px; color:#9aa3b8; margin-top:2px; letter-spacing:2px; }
+  .intro .in-goals { margin-top:10px; display:flex; flex-direction:column; gap:7px; }
+  .intro .ig {
+    display:flex; align-items:center; justify-content:center; gap:6px;
+    font-size:13.5px; font-weight:700; color:#2b3550;
+    background:#f4f8ff; border-radius:10px; padding:7px 12px;
+  }
+  .intro .ig b { font-size:16px; }
   .chip.done { background:linear-gradient(135deg,#e9fbf0,#dcf6e6); }
   .board {
     border-radius:26px;
@@ -406,6 +443,11 @@
 
   <div class="board-wrap"><div class="board" id="board"></div>
     <div class="tut" id="tut"><span class="hand">👆</span><span class="tx">按住一只动物，往旁边那格拖</span></div>
+    <div class="intro" id="intro">
+      <div class="in-title" id="introTitle">第 1 关</div>
+      <div class="in-sub">通 关 目 标</div>
+      <div class="in-goals" id="introGoals"></div>
+    </div>
   </div>
 
   <div class="props">
@@ -753,6 +795,7 @@ function startLevel(i){
     if(i===0 && lsGet('tutDone')!=='1') tutEl.classList.add('show');
     else tutEl.classList.remove('show');
   }
+  showIntro(i);
   if(lv.time) startTimer();
   scheduleSave();
 }
@@ -1030,7 +1073,9 @@ function updateHUD(){
     else if(g.t==='collect'){ em=ANIMALS[g.a]; txt=(collected[g.a]||0)+'/'+g.n; }
     else if(g.t==='combo'){ em='🔗'; txt='x'+Math.min(maxCombo,g.n)+'/'+g.n; }
     else if(g.t==='special'){ em='✨'; txt=Math.min(specialMade,g.n)+'/'+g.n; }
-    chip.innerHTML='<span class="em">'+em+'</span><span>'+txt+'</span>';
+    var pct=Math.max(0,Math.min(100,Math.round(goalProgress(g)/g.n*100)));
+    chip.innerHTML='<span class="top"><span class="em">'+em+'</span><span class="txt">'+txt+'</span></span>'+
+      '<span class="bar"><i style="width:'+pct+'%"></i></span>';
     box.appendChild(chip);
   }
 }
@@ -1453,6 +1498,29 @@ function showHint(){
 }
 
 /* ============ 选关 ============ */
+function goalIcon(g){
+  if(g.t==='score') return '🏆';
+  if(g.t==='ice') return '❄️';
+  if(g.t==='star') return '⭐';
+  if(g.t==='combo') return '🔗';
+  if(g.t==='special') return '✨';
+  return ANIMALS[g.a]||'🐾';
+}
+function showIntro(idx){
+  var el=document.getElementById('intro');
+  if(!el) return;
+  var lv=LEVELS[idx];
+  document.getElementById('introTitle').textContent='第 '+(idx+1)+' 关';
+  var html=lv.goals.map(function(g){
+    return '<div class="ig"><b>'+goalIcon(g)+'</b>'+describe([g])+'</div>';
+  }).join('');
+  if(lv.crates) html+='<div class="ig"><b>📦</b>另有 '+lv.crates+' 个箱子挡路</div>';
+  document.getElementById('introGoals').innerHTML=html;
+  el.classList.remove('show');
+  void el.offsetWidth;
+  el.classList.add('show');
+}
+
 function shortGoal(g){
   if(g.t==='score') return '🏆'+g.n;
   if(g.t==='ice') return '❄️'+g.n;
