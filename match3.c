@@ -39,6 +39,8 @@
 #define G_ICE     2
 #define G_COMBO   3
 #define G_SPECIAL 4
+#define G_OIL     5
+#define G_BOMB    6
 
 #define MAX_CRE 8
 #define QCAP    256
@@ -49,6 +51,9 @@
 typedef struct {
     int moves, types, ng;
     int gk[3], ga[3], gn[3];
+    int oil;    /* 初始油污格数 */
+    int gate;   /* 传送门对数 */
+    int bomb;   /* 定时炸弹数量 */
 } Level;
 
 static const Level LEVELS[] = {
@@ -71,7 +76,17 @@ static const Level LEVELS[] = {
     {30, 6, 3, {G_COLLECT, G_COLLECT, G_COLLECT}, {0, 3, 5}, {25, 18, 25}},
     {32, 6, 2, {G_ICE, G_SPECIAL},         {0, 0},        {12, 4}},
     {34, 6, 1, {G_SCORE},   {0},           {1900}},
-    {36, 6, 3, {G_ICE, G_COLLECT, G_SCORE}, {0, 5, 0},    {14, 12, 1800}}
+    {36, 6, 3, {G_ICE, G_COLLECT, G_SCORE}, {0, 5, 0},    {14, 12, 1800}},
+
+    /* ---- 新机制关卡：传送门 / 油污 / 定时炸弹 ---- */
+    {26, 6, 1, {G_SCORE},   {0},           {1900},                  0, 2, 0},
+    {28, 6, 1, {G_OIL},     {0},           {8},                     8, 0, 0},
+    {26, 6, 1, {G_BOMB},    {0},           {4},                     0, 0, 4},
+    {30, 6, 2, {G_ICE, G_SCORE},  {0, 0},  {10, 1600},              0, 3, 0},
+    {30, 6, 2, {G_OIL, G_BOMB},   {0, 0},  {6, 3},                  6, 0, 3},
+    {32, 6, 2, {G_SCORE, G_OIL},  {0, 0},  {1800, 6},               6, 2, 0},
+    {30, 6, 2, {G_BOMB, G_COMBO}, {0, 0},  {5, 4},                  0, 0, 5},
+    {36, 6, 3, {G_OIL, G_BOMB, G_SCORE}, {0, 0, 0}, {8, 4, 2000},   8, 3, 4}
 };
 #define LEVEL_COUNT ((int)(sizeof(LEVELS) / sizeof(LEVELS[0])))
 
@@ -79,6 +94,11 @@ static const Level LEVELS[] = {
 static int type[N][N];      /* 动物种类，EMPTY 表示空格 */
 static int sp[N][N];        /* 特效 */
 static int ice[N][N];       /* 冰块层数 0/1/2 */
+static int oil[N][N];       /* 油污：1 表示被粘住，不能交换 */
+static int gate[N][N];      /* 传送门组号，0 表示没有 */
+static int bomb[N][N];      /* 定时炸弹剩余步数，0 表示没有 */
+static int oil_total;       /* 本关初始油污格数 */
+static int oil_cleared;     /* 已清除的油污格数 */
 
 static int cur_r, cur_c;    /* 光标 */
 static int sel_r = -1, sel_c = -1;
@@ -105,6 +125,14 @@ static const int  ANIMAL_BG[MAXT] = {224, 223, 194, 189, 229, 159};
 static const char *ANIMAL_CN[MAXT] = {"兔", "狐", "蛙", "猴", "熊", "虎"};
 
 static const double MULT[] = {1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0};
+
+/* ---------------- 前置声明 ---------------- */
+static int  oil_left(void);
+static int  bomb_left(void);
+static void oil_spread(void);
+static void portal_pass(void);
+static void compact(void);
+static void after_move(void);
 
 /* ---------------- 基础工具 ---------------- */
 static int rnd_type(void) { return rand() % types_now; }
@@ -250,7 +278,30 @@ static void detect_creations(int mark[N][N], int r1, int c1, int r2, int c2)
 }
 
 /* ---------------- 重力与补充 ---------------- */
-static void gravity(void)
+static void gate_partner(int id, int r, int c, int *pr, int *pc)
+{
+    int rr, cc;
+    for (rr = 0; rr < N; rr++) for (cc = 0; cc < N; cc++)
+        if (gate[rr][cc] == id && !(rr == r && cc == c)) { *pr = rr; *pc = cc; return; }
+    *pr = r; *pc = c;
+}
+
+/* 落在传送门上的棋子，从另一端出来 */
+static void portal_pass(void)
+{
+    int r, c, pr, pc;
+    for (r = 0; r < N; r++) for (c = 0; c < N; c++) {
+        if (!gate[r][c] || type[r][c] == EMPTY) continue;
+        gate_partner(gate[r][c], r, c, &pr, &pc);
+        if (pr == r && pc == c) continue;
+        if (type[pr][pc] == EMPTY) {
+            type[pr][pc] = type[r][c]; sp[pr][pc] = sp[r][c];
+            type[r][c] = EMPTY;        sp[r][c] = 0;
+        }
+    }
+}
+
+static void compact(void)
 {
     int c, r;
     for (c = 0; c < N; c++) {
@@ -264,8 +315,18 @@ static void gravity(void)
                 w--;
             }
         }
-        for (r = w; r >= 0; r--) { type[r][c] = rnd_type(); sp[r][c] = SP_NONE; }
     }
+}
+
+static void gravity(void)
+{
+    int c, r;
+    compact();
+    portal_pass();
+    compact();
+    for (c = 0; c < N; c++)
+        for (r = 0; r < N; r++)
+            if (type[r][c] == EMPTY) { type[r][c] = rnd_type(); sp[r][c] = SP_NONE; }
 }
 
 /* ---------------- 绘制 ---------------- */
@@ -289,12 +350,18 @@ static void draw(void)
         else if (lv->gk[i] == G_ICE)     { have = 0; done = 0; printf("清冰x%d", lv->gn[i]); }
         else if (lv->gk[i] == G_COMBO)   { have = combo_max; done = have >= lv->gn[i]; printf("连消x%d", lv->gn[i]); }
         else if (lv->gk[i] == G_SPECIAL) { have = special_made; done = have >= lv->gn[i]; printf("造特效x%d", lv->gn[i]); }
+        else if (lv->gk[i] == G_OIL)     { have = 0; done = 0; printf("清油污x%d", lv->gn[i]); }
+        else if (lv->gk[i] == G_BOMB)    { have = 0; done = 0; printf("拆炸弹x%d", lv->gn[i]); }
         if (done) printf("\x1b[32m(完成)\x1b[0m");
         else {
             if (lv->gk[i] == G_ICE) {
                 int left = 0, rr, cc;
                 for (rr = 0; rr < N; rr++) for (cc = 0; cc < N; cc++) if (ice[rr][cc] > 0) left++;
                 printf("(%d/%d)", lv->gn[i] - left, lv->gn[i]);
+            } else if (lv->gk[i] == G_OIL) {
+                printf("(%d/%d)", oil_cleared, lv->gn[i]);
+            } else if (lv->gk[i] == G_BOMB) {
+                printf("(%d/%d)", lv->gn[i] - bomb_left(), lv->gn[i]);
             } else printf("(%d/%d)", have, lv->gn[i]);
         }
         if (i + 1 < lv->ng) printf("  ");
@@ -312,6 +379,9 @@ static void draw(void)
             else if (sp[r][c] == SP_BOMB) ch = '*';
             else if (sp[r][c] == SP_RB) ch = '@';
             if (ice[r][c] > 0) { lb = '['; rb = ']'; bg = 159; }
+            if (oil[r][c]) { lb = '~'; bg = 240; }
+            if (gate[r][c]) { lb = '('; rb = ')'; bg = 33; }
+            if (bomb[r][c] > 0) { rb = (char)('0' + bomb[r][c] % 10); bg = 160; }
             if (sel_r == r && sel_c == c) printf("\x1b[7m");
             printf("\x1b[48;5;%dm\x1b[38;5;16m%c%c%c\x1b[0m ", bg, lb, ch, rb);
         }
@@ -321,7 +391,7 @@ static void draw(void)
     printf("\n  \x1b[90m");
     for (i = 0; i < types_now; i++) printf("%c=%s ", ANIMAL_CH[i], ANIMAL_CN[i]);
     printf("\x1b[0m\n");
-    printf("  \x1b[90m= 清行  | 清列  * 炸弹(3x3)  @ 彩虹  [ ] 冰\x1b[0m\n");
+    printf("  \x1b[90m= 清行  | 清列  * 炸弹(3x3)  @ 彩虹  [ ] 冰  ~ 油污  () 传送门  数字 炸弹倒计时\x1b[0m\n");
     printf("  \x1b[1m方向键\x1b[0m 移动   \x1b[1m空格\x1b[0m 选中/交换   \x1b[1mh\x1b[0m 提示   \x1b[1mr\x1b[0m 重开   \x1b[1mq\x1b[0m 退出   \x1b[90m过关时每剩 1 步 = %d 分\x1b[0m\n", BONUS_PER_MOVE);
     if (g_msg[0]) printf("  \x1b[1;35m%s\x1b[0m\n", g_msg);
     else printf("\n");
@@ -404,6 +474,8 @@ static void resolve(int preclr[N][N])
                 if (type[r][c] == EMPTY) continue;
                 if (type[r][c] < MAXT) collected[type[r][c]]++;
                 if (ice[r][c] > 0) ice[r][c]--;
+                if (oil[r][c]) { oil[r][c] = 0; oil_cleared++; }  /* 消掉压在油污上的棋子，油污一并清掉 */
+                if (bomb[r][c] > 0) bomb[r][c] = 0; /* 拆弹 */
                 type[r][c] = EMPTY;
                 sp[r][c] = SP_NONE;
             }
@@ -485,6 +557,11 @@ static int try_swap(int r1, int c1, int r2, int c2)
 
     if (abs(r1 - r2) + abs(c1 - c2) != 1) return 0;
 
+    if (oil[r1][c1] || oil[r2][c2]) {
+        sprintf(g_msg, "被油污粘住了，消掉旁边的格子才能解开");
+        return 0;
+    }
+
     swap_cells(r1, c1, r2, c2);
     s1 = sp[r1][c1];
     s2 = sp[r2][c2];
@@ -492,6 +569,7 @@ static int try_swap(int r1, int c1, int r2, int c2)
     if (s1 == SP_RB || s2 == SP_RB || (s1 && s2)) {
         moves--;
         fire_combo(r1, c1, r2, c2);
+        after_move();
         return 1;
     }
 
@@ -504,6 +582,7 @@ static int try_swap(int r1, int c1, int r2, int c2)
     moves--;
     sw1r = r1; sw1c = c1; sw2r = r2; sw2c = c2;
     resolve(NULL);
+    after_move();
     return 1;
 }
 
@@ -514,12 +593,13 @@ static int has_move(void)
     for (r = 0; r < N; r++) for (c = 0; c < N; c++)
         if (sp[r][c] == SP_RB) return 1;
     for (r = 0; r < N; r++) for (c = 0; c < N; c++) {
-        if (c + 1 < N) {
+        if (oil[r][c]) continue;
+        if (c + 1 < N && !oil[r][c + 1]) {
             swap_cells(r, c, r, c + 1);
             if (find_matches(probe)) { swap_cells(r, c, r, c + 1); return 1; }
             swap_cells(r, c, r, c + 1);
         }
-        if (r + 1 < N) {
+        if (r + 1 < N && !oil[r + 1][c]) {
             swap_cells(r, c, r + 1, c);
             if (find_matches(probe)) { swap_cells(r, c, r + 1, c); return 1; }
             swap_cells(r, c, r + 1, c);
@@ -531,6 +611,10 @@ static int has_move(void)
 static void shuffle_board(void)
 {
     int r, c, guard = 0, probe[N][N];
+    if (oil_left() > 0) {                 /* 重排时把油污冲散，避免被粘死 */
+        for (r = 0; r < N; r++) for (c = 0; c < N; c++) oil[r][c] = 0;
+        sprintf(g_msg, "油污被冲散了");
+    }
     do {
         for (r = 0; r < N; r++) for (c = 0; c < N; c++) {
             type[r][c] = rnd_type();
@@ -607,6 +691,99 @@ static void place_ice(int n)
     }
 }
 
+/* ---------------- 新机制：油污 / 传送门 / 定时炸弹 ---------------- */
+static int oil_left(void)
+{
+    int r, c, n = 0;
+    for (r = 0; r < N; r++) for (c = 0; c < N; c++) if (oil[r][c]) n++;
+    return n;
+}
+
+static void place_oil(int n)
+{
+    int r, c, k;
+    for (r = 0; r < N; r++) for (c = 0; c < N; c++) oil[r][c] = 0;
+    for (k = 0; k < n; k++) {
+        r = rand() % N; c = rand() % N;
+        oil[r][c] = 1;
+    }
+    oil_total = oil_left();
+}
+
+/* 每走一步，油污向外扩一格；冰块格和传送门格不长油 */
+#define OIL_CAP 12
+static void oil_spread(void)
+{
+    int grow[N][N] = {{0}}, r, c, d;
+    if (oil_left() >= OIL_CAP) return;
+    for (r = 0; r < N; r++) for (c = 0; c < N; c++) {
+        if (!oil[r][c]) continue;
+        for (d = 0; d < 4; d++) {
+            int rr = r + DR[d], cc = c + DC[d];
+            if (rr < 0 || rr >= N || cc < 0 || cc >= N) continue;
+            if (oil[rr][cc] || ice[rr][cc] || gate[rr][cc]) continue;
+            grow[rr][cc] = 1;
+        }
+    }
+    for (r = 0; r < N; r++) for (c = 0; c < N; c++) if (grow[r][c]) oil[r][c] = 1;
+}
+
+static void place_gates(int pairs)
+{
+    int r, c, i, id;
+    for (r = 0; r < N; r++) for (c = 0; c < N; c++) gate[r][c] = 0;
+    for (id = 1; id <= pairs; id++) {
+        for (i = 0; i < 2; i++) {
+            int guard = 0;
+            do {
+                r = 1 + rand() % (N - 2);
+                c = 1 + rand() % (N - 2);
+            } while (guard++ < 60 && (gate[r][c] || oil[r][c] || ice[r][c]));
+            gate[r][c] = id;
+        }
+    }
+}
+
+static void place_bombs(int n)
+{
+    int r, c, k;
+    for (r = 0; r < N; r++) for (c = 0; c < N; c++) bomb[r][c] = 0;
+    for (k = 0; k < n; k++) {
+        int guard = 0;
+        do {
+            r = rand() % N; c = rand() % N;
+        } while (guard++ < 80 && (bomb[r][c] || oil[r][c] || gate[r][c] || ice[r][c]));
+        bomb[r][c] = 8;          /* 8 步内不处理就炸 */
+    }
+}
+
+/* 每走一步：炸弹倒计时，归零就炸（清格 + 扣 3 步） */
+static int bomb_tick(void)
+{
+    int r, c, blew = 0;
+    for (r = 0; r < N; r++) for (c = 0; c < N; c++) {
+        if (bomb[r][c] <= 0) continue;
+        bomb[r][c]--;
+        if (bomb[r][c] == 0) {
+            type[r][c] = EMPTY; sp[r][c] = 0;
+            oil[r][c] = 1;
+            moves -= 3;
+            blew = 1;
+            sprintf(g_msg, "炸弹爆炸！第 %d 行 %d 列 变成油污，扣 3 步", r + 1, c + 1);
+        }
+    }
+    return blew;
+}
+
+/* 一次成功交换之后统一处理 */
+static int move_no = 0;
+static void after_move(void)
+{
+    move_no++;
+    if (oil_total > 0 && (move_no % 2) == 0) oil_spread();   /* 每两步扩散一次，留出喘息 */
+    if (bomb_tick()) { gravity(); }
+}
+
 static void start_level(int idx)
 {
     int i, r, c;
@@ -622,12 +799,18 @@ static void start_level(int idx)
     g_msg[0] = 0;
 
     for (i = 0; i < MAXT; i++) collected[i] = 0;
-    for (r = 0; r < N; r++) for (c = 0; c < N; c++) ice[r][c] = 0;
+    for (r = 0; r < N; r++) for (c = 0; c < N; c++) {
+        ice[r][c] = 0; oil[r][c] = 0; gate[r][c] = 0; bomb[r][c] = 0;
+    }
+    oil_total = 0; oil_cleared = 0; move_no = 0;
 
     new_board();
 
     for (i = 0; i < lv->ng; i++)
         if (lv->gk[i] == G_ICE) place_ice(lv->gn[i]);
+    if (lv->gate) place_gates(lv->gate);
+    if (lv->oil)  place_oil(lv->oil);
+    if (lv->bomb) place_bombs(lv->bomb);
 
     cur_r = 0; cur_c = 0;
 }
@@ -655,6 +838,13 @@ static int settle_bonus(void)
     return left;
 }
 
+static int bomb_left(void)
+{
+    int r, c, n = 0;
+    for (r = 0; r < N; r++) for (c = 0; c < N; c++) if (bomb[r][c] > 0) n++;
+    return n;
+}
+
 static int goals_done(void)
 {
     const Level *lv = &LEVELS[level_idx];
@@ -667,6 +857,8 @@ static int goals_done(void)
         case G_ICE:     if (ice_left() > 0) return 0; break;
         case G_COMBO:   if (combo_max < need) return 0; break;
         case G_SPECIAL: if (special_made < need) return 0; break;
+        case G_OIL:     if (oil_cleared < need) return 0; break;
+        case G_BOMB:    if (bomb_left() > 0) return 0; break;
         }
     }
     return 1;
@@ -745,8 +937,9 @@ static int best_move(int *r1, int *c1, int *r2, int *c2)
         int dirs[2][2] = {{0, 1}, {1, 0}};
         for (d = 0; d < 2; d++) {
             int r2i = r + dirs[d][0], c2i = c + dirs[d][1];
-            int cnt = 0, fcnt = 0, icnt = 0, rr, cc, sc;
+            int cnt = 0, fcnt = 0, icnt = 0, ocnt = 0, bcnt = 0, rr, cc, sc;
             if (r2i >= N || c2i >= N) continue;
+            if (oil[r][c] || oil[r2i][c2i]) continue;      /* 被油污粘住的格子换不动 */
             if (sp[r][c] && sp[r2i][c2i]) { *r1 = r; *c1 = c; *r2 = r2i; *c2 = c2i; return 1; }
             if (sp[r][c] == SP_RB || sp[r2i][c2i] == SP_RB) { *r1 = r; *c1 = c; *r2 = r2i; *c2 = c2i; return 1; }
             swap_cells(r, c, r2i, c2i);
@@ -756,10 +949,12 @@ static int best_move(int *r1, int *c1, int *r2, int *c2)
                         cnt++;
                         if (type[rr][cc] == g_focus_type) fcnt++;
                         if (g_focus_ice && ice[rr][cc] > 0) icnt++;
+                        if (oil[rr][cc]) ocnt++;
+                        if (bomb[rr][cc] > 0) bcnt++;
                     }
             swap_cells(r, c, r2i, c2i);
             if (cnt <= 0) continue;
-            sc = cnt * 10 + fcnt * 30 + icnt * 30;
+            sc = cnt * 10 + fcnt * 30 + icnt * 30 + ocnt * 40 + bcnt * 40;
             if (sc > best) { best = sc; br1 = r; bc1 = c; br2 = r2i; bc2 = c2i; }
         }
     }
