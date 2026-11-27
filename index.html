@@ -127,6 +127,36 @@
   .face.hurt { animation:crateHit .2s ease-out; }
   @keyframes crateHit { 50% { transform:scale(.9); } }
 
+  /* 新机制标记层 */
+  .mk { position:absolute; width:12.5%; height:12.5%; top:0; left:0; pointer-events:none; }
+  .mk-oil {
+    z-index:5; border-radius:26%;
+    background:radial-gradient(circle at 35% 30%, rgba(96,74,42,.34), rgba(48,34,18,.52));
+    box-shadow:inset 0 0 0 2px rgba(255,255,255,.25);
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px; color:rgba(255,255,255,.75); font-weight:900;
+  }
+  .mk-oil::after { content:'~'; }
+  .mk-gate {
+    z-index:0; border-radius:50%; box-sizing:border-box;
+    border:3px dashed rgba(124,92,255,.85);
+    background:radial-gradient(circle, rgba(124,92,255,.28) 0%, rgba(124,92,255,.05) 70%);
+    animation:gatePulse 1.8s ease-in-out infinite;
+  }
+  @keyframes gatePulse {
+    0%,100% { box-shadow:0 0 0 0 rgba(124,92,255,.45); }
+    50%     { box-shadow:0 0 0 5px rgba(124,92,255,0); }
+  }
+  .mk-bomb {
+    z-index:6; display:block; text-align:right; padding-right:5px;
+    font-size:10px; font-weight:900; color:#fff; line-height:19px;
+    text-shadow:0 1px 1px rgba(0,0,0,.35);
+  }
+  .mk-bomb::before {
+    content:''; position:absolute; right:1px; top:1px; width:17px; height:17px; border-radius:50%;
+    background:#ff4d4f; box-shadow:0 2px 6px rgba(255,77,79,.65); z-index:-1;
+  }
+
   .star {
     position:absolute; width:12.5%; height:12.5%; top:0; left:0; z-index:4; pointer-events:none;
     display:flex; align-items:center; justify-content:center;
@@ -533,6 +563,10 @@ var ANIMAL_NAMES=['熊猫','狐狸','青蛙','猴子','兔子','小熊','老虎'
 var COLORS=['#ffe1ea','#ffeed4','#e2f6d9','#e6e0ff','#fff3c9','#dff0ff','#ffe4d6','#e0f5ee'];
 var SP_CLASS={h:'sp-h',v:'sp-v',bomb:'sp-bomb',rainbow:'sp-rb'};
 var SAVE_KEY='animalXxlMobile_v2';
+/* 新机制：油污 / 传送门 / 定时炸弹 */
+var oilMap=[], oilEls=[], gateMap=[], gateEls=[], bombMap=[], bombEls=[];
+var oilTotal=0, oilCleared=0, moveNo=0;
+var OIL_CAP=12, BOMB_STEPS=8;
 /* 过关时每剩 1 步折算多少分 */
 var BONUS_PER_MOVE=100;
 var levelBonus=0, levelLeft=0;
@@ -558,7 +592,17 @@ var LEVELS=[
   {moves:32,types:6,goals:[{t:'collect',a:0,n:16},{t:'collect',a:3,n:12},{t:'collect',a:5,n:14}]},
   {moves:32,types:6,goals:[{t:'ice',n:10},{t:'special',n:4},{t:'combo',n:3}],crates:4},
   {moves:34,types:6,goals:[{t:'score',n:1700},{t:'collect',a:1,n:14},{t:'star',n:8}]},
-  {moves:36,types:6,goals:[{t:'ice',n:12},{t:'collect',a:5,n:10},{t:'score',n:1500}],crates:6}
+  {moves:36,types:6,goals:[{t:'ice',n:12},{t:'collect',a:5,n:10},{t:'score',n:1500}],crates:6},
+
+  /* ---- 新机制：传送门 / 油污 / 定时炸弹 ---- */
+  {moves:26,types:6,goals:[{t:'score',n:1900}],gate:2},
+  {moves:28,types:6,goals:[{t:'oil',n:8}],oil:8},
+  {moves:26,types:6,goals:[{t:'bomb',n:4}],bomb:4},
+  {moves:30,types:6,goals:[{t:'ice',n:10},{t:'score',n:1600}],gate:3},
+  {moves:30,types:6,goals:[{t:'oil',n:6},{t:'bomb',n:3}],oil:6,bomb:3},
+  {moves:32,types:6,goals:[{t:'score',n:1800},{t:'oil',n:6}],oil:6,gate:2},
+  {moves:30,types:6,goals:[{t:'bomb',n:5},{t:'combo',n:4}],bomb:5},
+  {moves:36,types:6,goals:[{t:'oil',n:8},{t:'bomb',n:4},{t:'score',n:2000}],oil:8,gate:3,bomb:4}
 ];
 
 /* ============ 状态 ============ */
@@ -674,6 +718,130 @@ function makeTile(r,c,type,sp){
 }
 
 /* ============ 冰块 ============ */
+/* ============ 新机制：油污 / 传送门 / 定时炸弹 ============ */
+function bombLeft(){ var n=0,r,c; for(r=0;r<SIZE;r++) for(c=0;c<SIZE;c++) if(bombMap[r]&&bombMap[r][c]>0) n++; return n; }
+function oilLeft(){ var n=0,r,c; for(r=0;r<SIZE;r++) for(c=0;c<SIZE;c++) if(oilMap[r]&&oilMap[r][c]) n++; return n; }
+
+function resetMaps(){
+  oilMap=[]; gateMap=[]; bombMap=[]; oilEls=[]; gateEls=[]; bombEls=[];
+  for(var r=0;r<SIZE;r++){
+    oilMap[r]=[]; gateMap[r]=[]; bombMap[r]=[]; oilEls[r]=[]; gateEls[r]=[]; bombEls[r]=[];
+    for(var c=0;c<SIZE;c++){ oilMap[r][c]=0; gateMap[r][c]=0; bombMap[r][c]=0; oilEls[r][c]=null; gateEls[r][c]=null; bombEls[r][c]=null; }
+  }
+  oilTotal=0; oilCleared=0; moveNo=0;
+}
+
+function gatePartner(id,r,c){
+  for(var rr=0;rr<SIZE;rr++) for(var cc=0;cc<SIZE;cc++)
+    if(gateMap[rr][cc]===id && !(rr===r&&cc===c)) return [rr,cc];
+  return null;
+}
+
+function placeOil(n){
+  var pool=[];
+  for(var r=0;r<SIZE;r++) for(var c=0;c<SIZE;c++) pool.push([r,c]);
+  for(var i=pool.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=pool[i]; pool[i]=pool[j]; pool[j]=t; }
+  for(var k=0;k<Math.min(n,pool.length);k++) oilMap[pool[k][0]][pool[k][1]]=1;
+  oilTotal=oilLeft();
+}
+
+function placeGates(pairs){
+  for(var id=1;id<=pairs;id++){
+    for(var k=0;k<2;k++){
+      var guard=0,r,c;
+      do{ r=1+Math.floor(Math.random()*(SIZE-2)); c=1+Math.floor(Math.random()*(SIZE-2)); }
+      while(guard++<60 && (gateMap[r][c]||oilMap[r][c]||(iceMap[r]&&iceMap[r][c])||bombMap[r][c]));
+      gateMap[r][c]=id;
+    }
+  }
+}
+
+function placeBombs(n){
+  for(var k=0;k<n;k++){
+    var guard=0,r,c;
+    do{ r=Math.floor(Math.random()*SIZE); c=Math.floor(Math.random()*SIZE); }
+    while(guard++<80 && (bombMap[r][c]||oilMap[r][c]||gateMap[r][c]||(iceMap[r]&&iceMap[r][c])));
+    bombMap[r][c]=BOMB_STEPS;
+  }
+}
+
+function renderMaps(){
+  var r,c,el;
+  for(r=0;r<SIZE;r++) for(c=0;c<SIZE;c++){
+    if(oilEls[r][c]){ oilEls[r][c].remove(); oilEls[r][c]=null; }
+    if(gateEls[r][c]){ gateEls[r][c].remove(); gateEls[r][c]=null; }
+    if(bombEls[r][c]){ bombEls[r][c].remove(); bombEls[r][c]=null; }
+  }
+  for(r=0;r<SIZE;r++) for(c=0;c<SIZE;c++){
+    if(oilMap[r][c]){
+      el=document.createElement('div'); el.className='mk mk-oil';
+      boardEl.appendChild(el); setPos(el,r,c); oilEls[r][c]=el;
+    }
+    if(gateMap[r][c]){
+      el=document.createElement('div'); el.className='mk mk-gate';
+      boardEl.appendChild(el); setPos(el,r,c); gateEls[r][c]=el;
+    }
+    if(bombMap[r][c]>0){
+      el=document.createElement('div'); el.className='mk mk-bomb';
+      el.textContent=bombMap[r][c];
+      boardEl.appendChild(el); setPos(el,r,c); bombEls[r][c]=el;
+    }
+  }
+}
+
+function paintBomb(r,c){
+  var el=bombEls[r][c];
+  if(!el) return;
+  if(bombMap[r][c]<=0){ el.remove(); bombEls[r][c]=null; }
+  else el.textContent=bombMap[r][c];
+}
+
+/* 油污每两步扩散一格，上限 OIL_CAP */
+function oilSpread(){
+  if(oilLeft()>=OIL_CAP) return;
+  var grow=[],r,c,d,DR=[1,-1,0,0],DC=[0,0,1,-1];
+  for(r=0;r<SIZE;r++){ grow.push([]); for(c=0;c<SIZE;c++) grow[r].push(0); }
+  var any=false;
+  for(r=0;r<SIZE;r++) for(c=0;c<SIZE;c++){
+    if(!oilMap[r][c]) continue;
+    for(d=0;d<4;d++){
+      var rr=r+DR[d], cc=c+DC[d];
+      if(rr<0||rr>=SIZE||cc<0||cc>=SIZE) continue;
+      if(oilMap[rr][cc]||(iceMap[rr]&&iceMap[rr][cc])||gateMap[rr][cc]) continue;
+      grow[rr][cc]=1; any=true;
+    }
+  }
+  if(any){
+    for(r=0;r<SIZE;r++) for(c=0;c<SIZE;c++) if(grow[r][c]) oilMap[r][c]=1;
+    renderMaps();
+  }
+}
+
+/* 炸弹倒计时，归零则炸开：清格 + 变油污 + 扣 3 步 */
+function bombTick(){
+  var blew=false, r, c;
+  for(r=0;r<SIZE;r++) for(c=0;c<SIZE;c++){
+    if(bombMap[r][c]<=0) continue;
+    bombMap[r][c]--;
+    paintBomb(r,c);
+    if(bombMap[r][c]===0){
+      blew=true;
+      var t=grid[r][c];
+      if(t){ t.face.classList.add('pop'); grid[r][c]=null; }
+      oilMap[r][c]=1;
+      moves-=3;
+    }
+  }
+  if(blew){ renderMaps(); gravity(); banner('炸弹爆炸！扣 3 步'); }
+  return blew;
+}
+
+function afterMove(){
+  moveNo++;
+  if(oilTotal>0 && moveNo%2===0) oilSpread();
+  bombTick();
+}
+
 /* ============ 星星（新目标） ============ */
 var starMap=[], starEls=[], starsGot=0;
 
@@ -785,9 +953,14 @@ function startLevel(i){
   props=lv.noProps?{hammer:0,shuffle:0,add5:0}:{hammer:1,shuffle:1,add5:1}; hammerArmed=false;
   collected=[]; for(var a=0;a<ANIMALS.length;a++) collected[a]=0;
   starsGot=0; clearStars();
+  resetMaps();
+  if(lv.gate) placeGates(lv.gate);
+  if(lv.oil) placeOil(lv.oil);
+  if(lv.bomb) placeBombs(lv.bomb);
   palette=buildPalette(i,lv); typeCount=palette.length;
   timeLeft=lv.time||0;
   newBoard();
+  renderMaps();
   var ig=null;
   for(var g=0;g<lv.goals.length;g++) if(lv.goals[g].t==='ice') ig=lv.goals[g];
   for(var gs=0;gs<lv.goals.length;gs++) if(lv.goals[gs].t==='star') genStars(lv.goals[gs].n);
@@ -809,6 +982,8 @@ function describe(goals){
     if(g.t==='score') return '达到 '+g.n+' 分';
     if(g.t==='ice') return '清除 '+g.n+' 块冰';
     if(g.t==='star') return '收集 '+g.n+' 颗星星';
+  if(g.t==='oil') return '清除 '+g.n+' 块油污';
+  if(g.t==='bomb') return '拆除 '+g.n+' 颗炸弹';
     if(g.t==='combo') return '达成 x'+g.n+' 连消';
     if(g.t==='special') return '制造 '+g.n+' 个特效';
     return '收集 '+g.n+' 只 '+ANIMALS[g.a];
@@ -1047,6 +1222,8 @@ function goalProgress(g){
   if(g.t==='score') return Math.min(score,g.n);
   if(g.t==='ice') return g.n-iceLeft();
   if(g.t==='star') return Math.min(starsGot,g.n);
+  if(g.t==='oil') return Math.min(oilCleared,g.n);
+  if(g.t==='bomb') return Math.min(g.n-bombLeft(),g.n);
   if(g.t==='collect') return Math.min(collected[g.a]||0,g.n);
   if(g.t==='combo') return Math.min(maxCombo,g.n);
   if(g.t==='special') return Math.min(specialMade,g.n);
@@ -1078,6 +1255,8 @@ function updateHUD(){
     else if(g.t==='collect'){ txt=(ANIMAL_NAMES[g.a]||'收集')+' '+(collected[g.a]||0)+'/'+g.n; }
     else if(g.t==='combo'){ txt='连消 '+Math.min(maxCombo,g.n)+'/'+g.n; }
     else if(g.t==='special'){ txt='特效 '+Math.min(specialMade,g.n)+'/'+g.n; }
+    else if(g.t==='oil'){ txt='油污 '+Math.min(oilCleared,g.n)+'/'+g.n; }
+    else if(g.t==='bomb'){ txt='拆弹 '+(g.n-bombLeft())+'/'+g.n; }
     var pct=Math.max(0,Math.min(100,Math.round(goalProgress(g)/g.n*100)));
     chip.innerHTML='<span class="top"><span class="em">'+em+'</span><span class="txt">'+txt+'</span></span>'+
       '<span class="bar"><i style="width:'+pct+'%"></i></span>';
@@ -1111,7 +1290,25 @@ function gravity(){
       for(var i=0;i<spawned.length;i++){ spawned[i].el.style.transition=''; setPos(spawned[i].el,spawned[i].r,spawned[i].c); }
     });
   });
+  if(portalDepth<1 && portalPass()) { portalDepth++; gravity(); portalDepth--; }
   return spawned.length;
+}
+
+var portalDepth=0;
+function portalPass(){
+  var moved=false, r, c;
+  for(r=0;r<SIZE;r++) for(c=0;c<SIZE;c++){
+    if(!gateMap[r][c] || !grid[r][c]) continue;
+    var p=gatePartner(gateMap[r][c], r, c);
+    if(!p) continue;
+    var pr=p[0], pc=p[1];
+    if(grid[pr][pc]) continue;
+    var t=grid[r][c];
+    grid[pr][pc]=t; grid[r][c]=null;
+    t.r=pr; t.c=pc; setPos(t.el,pr,pc);
+    moved=true;
+  }
+  return moved;
 }
 
 /* ============ 核心结算 ============ */
@@ -1189,6 +1386,8 @@ function resolve(opt){
         collected[t.type]=(collected[t.type]||0)+1;
         breakIce(r,c);
         takeStar(r,c);
+        if(oilMap[r]&&oilMap[r][c]){ oilMap[r][c]=0; oilCleared++; if(oilEls[r][c]){ oilEls[r][c].remove(); oilEls[r][c]=null; } }
+        if(bombMap[r]&&bombMap[r][c]>0){ bombMap[r][c]=0; if(bombEls[r][c]){ bombEls[r][c].remove(); bombEls[r][c]=null; } }
         damageAround(r,c);
         t.face.classList.add('pop');
         if(cleared.length<14) burstAt(r,c,COLORS[t.type]);
@@ -1316,6 +1515,11 @@ function fxPlus(t){
 
 function trySwap(a,b){
   if(busy||levelOver||!adjacent(a,b)) return Promise.resolve();
+  if((oilMap[a.r]&&oilMap[a.r][a.c])||(oilMap[b.r]&&oilMap[b.r][b.c])){
+    banner('被油污粘住了，先消掉旁边的格子');
+    sBad();
+    return Promise.resolve();
+  }
   if(a.crate||b.crate){ banner('箱子挡着，消掉旁边才能拆开'); sBad(); return Promise.resolve(); }
   busy=true; resetIdle();
 
@@ -1327,12 +1531,12 @@ function trySwap(a,b){
     /* 彩虹可以跟任意动物交换；其余特效必须两个特效互撞才算组合 */
     if(a.sp==='rainbow' || b.sp==='rainbow' || (a.sp && b.sp)){
       useMove();
-      return fireCombo(a,b).then(function(){ return true; });
+      return fireCombo(a,b).then(function(){ afterMove(); return true; });
     }
     var runs=findRuns();
     if(runs.length){
       useMove();
-      return resolve({runs:runs,swapCells:[[ar,ac],[br,bc]]}).then(function(){ return true; });
+      return resolve({runs:runs,swapCells:[[ar,ac],[br,bc]]}).then(function(){ afterMove(); return true; });
     }
     swapTiles(a,b);
     sBad();
@@ -1509,6 +1713,8 @@ function goalIcon(g){
   if(g.t==='star') return '⭐';
   if(g.t==='combo') return '🔥';
   if(g.t==='special') return '💥';
+  if(g.t==='oil') return '🛢️';
+  if(g.t==='bomb') return '💣';
   return ANIMALS[g.a]||'🐾';
 }
 function goalLabel(g){
@@ -1517,6 +1723,8 @@ function goalLabel(g){
   if(g.t==='star') return '星星';
   if(g.t==='combo') return '连消';
   if(g.t==='special') return '特效';
+  if(g.t==='oil') return '油污';
+  if(g.t==='bomb') return '拆弹';
   return ANIMAL_NAMES[g.a]||'收集';
 }
 function showIntro(idx){
