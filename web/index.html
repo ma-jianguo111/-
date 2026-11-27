@@ -529,6 +529,7 @@ function fitBoard(){
 /* ============ 配置 ============ */
 var SIZE=8;
 var ANIMALS=['🐼','🦊','🐸','🐵','🐰','🐻','🐯','🐷'];
+var ANIMAL_NAMES=['熊猫','狐狸','青蛙','猴子','兔子','小熊','老虎','小猪'];
 var COLORS=['#ffe1ea','#ffeed4','#e2f6d9','#e6e0ff','#fff3c9','#dff0ff','#ffe4d6','#e0f5ee'];
 var SP_CLASS={h:'sp-h',v:'sp-v',bomb:'sp-bomb',rainbow:'sp-rb'};
 var SAVE_KEY='animalXxlMobile_v2';
@@ -1070,13 +1071,13 @@ function updateHUD(){
     var done=goalProgress(g)>=g.n;
     var chip=document.createElement('div');
     chip.className='chip'+(g.t==='ice'?' ice':'')+(done?' done':'');
-    var em='🏆', txt='';
-    if(g.t==='score'){ em='🏆'; txt=Math.min(score,g.n)+'/'+g.n; }
-    else if(g.t==='ice'){ em='❄️'; txt=(g.n-iceLeft())+'/'+g.n; }
-    else if(g.t==='star'){ em='⭐'; txt=Math.min(starsGot,g.n)+'/'+g.n; }
-    else if(g.t==='collect'){ em=ANIMALS[g.a]; txt=(collected[g.a]||0)+'/'+g.n; }
-    else if(g.t==='combo'){ em='🔗'; txt='x'+Math.min(maxCombo,g.n)+'/'+g.n; }
-    else if(g.t==='special'){ em='✨'; txt=Math.min(specialMade,g.n)+'/'+g.n; }
+    var em=goalIcon(g), txt='';
+    if(g.t==='score'){ txt='分数 '+Math.min(score,g.n)+'/'+g.n; }
+    else if(g.t==='ice'){ txt='冰块 '+(g.n-iceLeft())+'/'+g.n; }
+    else if(g.t==='star'){ txt='星星 '+Math.min(starsGot,g.n)+'/'+g.n; }
+    else if(g.t==='collect'){ txt=(ANIMAL_NAMES[g.a]||'收集')+' '+(collected[g.a]||0)+'/'+g.n; }
+    else if(g.t==='combo'){ txt='连消 '+Math.min(maxCombo,g.n)+'/'+g.n; }
+    else if(g.t==='special'){ txt='特效 '+Math.min(specialMade,g.n)+'/'+g.n; }
     var pct=Math.max(0,Math.min(100,Math.round(goalProgress(g)/g.n*100)));
     chip.innerHTML='<span class="top"><span class="em">'+em+'</span><span class="txt">'+txt+'</span></span>'+
       '<span class="bar"><i style="width:'+pct+'%"></i></span>';
@@ -1506,9 +1507,17 @@ function goalIcon(g){
   if(g.t==='score') return '🏆';
   if(g.t==='ice') return '❄️';
   if(g.t==='star') return '⭐';
-  if(g.t==='combo') return '🔗';
-  if(g.t==='special') return '✨';
+  if(g.t==='combo') return '🔥';
+  if(g.t==='special') return '💥';
   return ANIMALS[g.a]||'🐾';
+}
+function goalLabel(g){
+  if(g.t==='score') return '分数';
+  if(g.t==='ice') return '冰块';
+  if(g.t==='star') return '星星';
+  if(g.t==='combo') return '连消';
+  if(g.t==='special') return '特效';
+  return ANIMAL_NAMES[g.a]||'收集';
 }
 function showIntro(idx){
   var el=document.getElementById('intro');
@@ -1527,12 +1536,7 @@ function showIntro(idx){
 }
 
 function shortGoal(g){
-  if(g.t==='score') return '🏆'+g.n;
-  if(g.t==='ice') return '❄️'+g.n;
-  if(g.t==='star') return '⭐'+g.n;
-  if(g.t==='combo') return '🔗'+g.n;
-  if(g.t==='special') return '✨'+g.n;
-  return (ANIMALS[g.a]||'')+g.n;
+  return goalIcon(g)+goalLabel(g)+g.n;
 }
 function showSelect(){
   var g=document.getElementById('lvGrid'); g.innerHTML='';
