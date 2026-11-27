@@ -142,15 +142,19 @@
 
   .ice { position:absolute; width:12.5%; height:12.5%; top:0; left:0; z-index:3; pointer-events:none; }
   .ice .ice-face {
-    width:100%; height:100%; border-radius:26%;
-    background:rgba(190,223,255,.7);
-    box-shadow:inset 0 0 0 3px rgba(255,255,255,.9), inset 0 0 16px rgba(255,255,255,.8);
-    display:flex; align-items:center; justify-content:center; font-size:6vw;
+    width:100%; height:100%; border-radius:26%; position:relative;
+    background:rgba(196,232,255,.26);
+    box-shadow:inset 0 0 0 2px rgba(255,255,255,.8), inset 0 0 10px rgba(255,255,255,.5);
   }
-  @media (min-width:520px) { .ice .ice-face { font-size:26px; } }
-  .ice.l2 .ice-face { background:rgba(150,194,250,.9);
-    box-shadow:inset 0 0 0 4px rgba(255,255,255,.95), inset 0 0 20px rgba(255,255,255,.9); }
-  .ice .ice-face::after { content:'❄'; opacity:.85; }
+  .ice.l2 .ice-face {
+    background:rgba(168,212,255,.44);
+    box-shadow:inset 0 0 0 2px rgba(255,255,255,.9), inset 0 0 12px rgba(255,255,255,.6);
+  }
+  .ice .ice-face::after {
+    content:'❄'; position:absolute; right:2px; top:0; font-size:11px; line-height:1;
+    opacity:.9; color:#3f8fd0; text-shadow:0 1px 0 #fff;
+  }
+  .ice.l2 .ice-face::after { content:'❄❄'; font-size:9px; letter-spacing:-3px; }
   .ice .ice-face.crack { animation:crack .34s ease-out forwards; }
   @keyframes crack { 0%{transform:scale(1);opacity:1;} 40%{transform:scale(1.15);opacity:1;} 100%{transform:scale(.4);opacity:0;} }
 
@@ -535,7 +539,7 @@ var levelBonus=0, levelLeft=0;
 /* goals: score / collect(a,n) / ice(n) / combo(n) / special(n)；time 为限时关（秒） */
 var LEVELS=[
   {moves:22,types:5,goals:[{t:'score',n:1800}]},
-  {moves:18,types:5,goals:[{t:'collect',a:0,n:56}]},
+  {moves:15,types:5,goals:[{t:'collect',a:0,n:60}],noProps:true},
   {moves:24,types:5,goals:[{t:'ice',n:12}]},
   {moves:24,types:5,goals:[{t:'combo',n:5}]},
   {moves:26,types:6,goals:[{t:'score',n:1500},{t:'collect',a:1,n:15}]},
@@ -777,7 +781,7 @@ function startLevel(i){
   progress.cur=i; saveP();
   clearInterval(timerId); timerId=null; pendingLose=false;
   moves=lv.moves||0; score=0; maxCombo=0; specialMade=0; levelOver=false;
-  props={hammer:1,shuffle:1,add5:1}; hammerArmed=false;
+  props=lv.noProps?{hammer:0,shuffle:0,add5:0}:{hammer:1,shuffle:1,add5:1}; hammerArmed=false;
   collected=[]; for(var a=0;a<ANIMALS.length;a++) collected[a]=0;
   starsGot=0; clearStars();
   palette=buildPalette(i,lv); typeCount=palette.length;
@@ -1515,6 +1519,7 @@ function showIntro(idx){
     return '<div class="ig"><b>'+goalIcon(g)+'</b>'+describe([g])+'</div>';
   }).join('');
   if(lv.crates) html+='<div class="ig"><b>📦</b>另有 '+lv.crates+' 个箱子挡路</div>';
+  if(lv.noProps) html+='<div class="ig"><b>⚠️</b>极限关：本关道具禁用</div>';
   document.getElementById('introGoals').innerHTML=html;
   el.classList.remove('show');
   void el.offsetWidth;
