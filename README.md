@@ -1,5 +1,13 @@
 # 动物消消乐
 
+<p align="center">
+  <a href="https://ma-jianguo111.github.io/-/">
+    <img src="https://img.shields.io/badge/-%E2%96%B6%20%E7%82%B9%E6%88%91%E5%BC%80%E5%A7%8B%E7%8E%A9-ff6b4a?style=for-the-badge&labelColor=2b3550" alt="点我开始玩">
+  </a>
+</p>
+
+<p align="center"><b>👉 点上面的按钮，浏览器里直接开玩，不用下载、不用登录</b></p>
+
 同一个三消游戏的两个版本：**Windows 控制台版（C）** 和 **网页版（单文件 HTML）**。
 
 ---
